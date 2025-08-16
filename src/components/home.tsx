@@ -557,7 +557,7 @@ const Home = () => {
                   : "text-foreground"
               }`}
             >
-              {hawaiianTheme ? "LeiOut" : "Floor Planner"}
+              {hawaiianTheme ? "LeiOut" : "LeiOut"}
             </h1>
             {hawaiianTheme && <div className="text-3xl">🏝️</div>}
           </div>
