@@ -32,16 +32,16 @@ clean:
 
 # Build Docker image
 docker-build:
-	docker-compose build --no-cache
+	docker compose build --no-cache
 
 # Run with Docker Compose
 docker-run:
-	docker-compose up -d
+	docker compose up -d
 	@echo "Floor Planner is running at http://localhost:3000"
 
 # Stop Docker containers
 docker-stop:
-	docker-compose down
+	docker compose down
 
 # Build and deploy
 deploy: docker-build docker-run
@@ -49,17 +49,17 @@ deploy: docker-build docker-run
 
 # View logs
 logs:
-	docker-compose logs -f floor-planner
+	docker compose logs -f floor-planner
 
 # Restart containers
 restart:
-	docker-compose restart
+	docker compose restart
 
 # Development with Docker (optional)
 docker-dev:
-	docker-compose -f docker-compose.dev.yml up
+	docker compose -f docker-compose.dev.yml up
 
 # Clean Docker resources
 docker-clean:
-	docker-compose down -v --remove-orphans
+	docker compose down -v --remove-orphans
 	docker system prune -f
