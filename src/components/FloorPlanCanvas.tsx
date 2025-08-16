@@ -5,9 +5,36 @@ import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Clipboard } from "lucide-react";
 
+interface RoomShape {
+  type:
+    | "rectangle"
+    | "l-shape"
+    | "trapezoid"
+    | "triangle"
+    | "pentagon"
+    | "hexagon";
+  // For L-shape: main rectangle + extension
+  mainWidth?: number;
+  mainLength?: number;
+  extensionWidth?: number;
+  extensionLength?: number;
+  extensionPosition?: "top-right" | "top-left" | "bottom-right" | "bottom-left";
+  // For trapezoid: parallel sides and height
+  topWidth?: number;
+  bottomWidth?: number;
+  height?: number;
+  // For triangle: base and height
+  base?: number;
+  triangleHeight?: number;
+  // For polygon shapes: radius and number of sides
+  radius?: number;
+  sides?: number;
+}
+
 interface FloorPlanCanvasProps {
   roomWidth?: number; // in inches
   roomHeight?: number; // in inches
+  roomShape?: RoomShape;
   scale?: number; // pixels per inch
   furniture?: FurnitureItemType[];
   onFurnitureUpdate?: (furniture: FurnitureItemType[]) => void;
@@ -39,6 +66,7 @@ interface FurnitureItemFromSidebar {
 const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
   roomWidth = 144, // 12 feet default
   roomHeight = 144, // 12 feet default
+  roomShape = { type: "rectangle" },
   scale = 2, // 2 pixels per inch default for better visibility
   furniture = [],
   onFurnitureUpdate = () => {},
@@ -70,16 +98,74 @@ const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
     // Calculate a base scale that ensures the room fits well in the canvas
     // Target canvas size should be reasonable (600-800px for typical rooms)
     const targetCanvasSize = 600;
-    const maxRoomDimension = Math.max(roomWidth, roomHeight);
+
+    let maxRoomDimension;
+    let canvasWidth, canvasHeight;
+
+    if (roomShape.type === "l-shape") {
+      // For L-shape, calculate the bounding box
+      const mainWidth = roomShape.mainWidth || roomWidth;
+      const mainLength = roomShape.mainLength || roomHeight;
+      const extWidth = roomShape.extensionWidth || 60;
+      const extLength = roomShape.extensionLength || 60;
+
+      // Calculate total bounding dimensions
+      canvasWidth = Math.max(mainWidth, extWidth);
+      canvasHeight = Math.max(mainLength, extLength);
+
+      if (
+        roomShape.extensionPosition === "top-right" ||
+        roomShape.extensionPosition === "bottom-right"
+      ) {
+        canvasWidth = mainWidth + extWidth;
+      } else if (
+        roomShape.extensionPosition === "top-left" ||
+        roomShape.extensionPosition === "bottom-left"
+      ) {
+        canvasWidth = Math.max(mainWidth, extWidth);
+      }
+
+      if (
+        roomShape.extensionPosition === "top-right" ||
+        roomShape.extensionPosition === "top-left"
+      ) {
+        canvasHeight = mainLength + extLength;
+      } else {
+        canvasHeight = Math.max(mainLength, extLength);
+      }
+
+      maxRoomDimension = Math.max(canvasWidth, canvasHeight);
+    } else if (roomShape.type === "trapezoid") {
+      canvasWidth = Math.max(
+        roomShape.topWidth || 80,
+        roomShape.bottomWidth || 120,
+      );
+      canvasHeight = roomShape.height || 120;
+      maxRoomDimension = Math.max(canvasWidth, canvasHeight);
+    } else if (roomShape.type === "triangle") {
+      canvasWidth = roomShape.base || 120;
+      canvasHeight = roomShape.triangleHeight || 120;
+      maxRoomDimension = Math.max(canvasWidth, canvasHeight);
+    } else if (roomShape.type === "pentagon" || roomShape.type === "hexagon") {
+      const radius = roomShape.radius || 80;
+      canvasWidth = radius * 2;
+      canvasHeight = radius * 2;
+      maxRoomDimension = radius * 2;
+    } else {
+      maxRoomDimension = Math.max(roomWidth, roomHeight);
+      canvasWidth = roomWidth;
+      canvasHeight = roomHeight;
+    }
+
     const baseScale = targetCanvasSize / maxRoomDimension;
 
     // Apply the zoom scale on top of the base scale
     const finalScale = baseScale * (scale / 5.6); // Normalize scale since home.tsx uses scale * 5.6
 
-    const width = roomWidth * finalScale;
-    const height = roomHeight * finalScale;
+    const width = canvasWidth * finalScale;
+    const height = canvasHeight * finalScale;
     setCanvasDimensions({ width, height });
-  }, [roomWidth, roomHeight, scale]);
+  }, [roomWidth, roomHeight, roomShape, scale]);
 
   // Handle paste functionality
   useEffect(() => {
@@ -137,14 +223,48 @@ const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
 
     // Calculate the same scale used for canvas dimensions
     const targetCanvasSize = 600;
-    const maxRoomDimension = Math.max(roomWidth, roomHeight);
+
+    let maxRoomDimension;
+    if (roomShape.type === "l-shape") {
+      const mainWidth = roomShape.mainWidth || roomWidth;
+      const mainLength = roomShape.mainLength || roomHeight;
+      const extWidth = roomShape.extensionWidth || 60;
+      const extLength = roomShape.extensionLength || 60;
+
+      let canvasWidth = Math.max(mainWidth, extWidth);
+      let canvasHeight = Math.max(mainLength, extLength);
+
+      if (
+        roomShape.extensionPosition === "top-right" ||
+        roomShape.extensionPosition === "bottom-right"
+      ) {
+        canvasWidth = mainWidth + extWidth;
+      }
+
+      if (
+        roomShape.extensionPosition === "top-right" ||
+        roomShape.extensionPosition === "top-left"
+      ) {
+        canvasHeight = mainLength + extLength;
+      }
+
+      maxRoomDimension = Math.max(canvasWidth, canvasHeight);
+    } else {
+      maxRoomDimension = Math.max(roomWidth, roomHeight);
+    }
+
     const baseScale = targetCanvasSize / maxRoomDimension;
     const finalScale = baseScale * (scale / 5.6);
 
     const gridX = Math.floor(x / (gridSize * finalScale));
     const gridY = Math.floor(y / (gridSize * finalScale));
 
-    setDragOverCell({ x: gridX, y: gridY });
+    // Only highlight if the cell is within the room bounds
+    if (isGridCellInRoom(gridX, gridY)) {
+      setDragOverCell({ x: gridX, y: gridY });
+    } else {
+      setDragOverCell(null);
+    }
   };
 
   const handleDragLeave = () => {
@@ -167,12 +287,46 @@ const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
 
       // Calculate the same scale used for canvas dimensions
       const targetCanvasSize = 600;
-      const maxRoomDimension = Math.max(roomWidth, roomHeight);
+
+      let maxRoomDimension;
+      if (roomShape.type === "l-shape") {
+        const mainWidth = roomShape.mainWidth || roomWidth;
+        const mainLength = roomShape.mainLength || roomHeight;
+        const extWidth = roomShape.extensionWidth || 60;
+        const extLength = roomShape.extensionLength || 60;
+
+        let canvasWidth = Math.max(mainWidth, extWidth);
+        let canvasHeight = Math.max(mainLength, extLength);
+
+        if (
+          roomShape.extensionPosition === "top-right" ||
+          roomShape.extensionPosition === "bottom-right"
+        ) {
+          canvasWidth = mainWidth + extWidth;
+        }
+
+        if (
+          roomShape.extensionPosition === "top-right" ||
+          roomShape.extensionPosition === "top-left"
+        ) {
+          canvasHeight = mainLength + extLength;
+        }
+
+        maxRoomDimension = Math.max(canvasWidth, canvasHeight);
+      } else {
+        maxRoomDimension = Math.max(roomWidth, roomHeight);
+      }
+
       const baseScale = targetCanvasSize / maxRoomDimension;
       const finalScale = baseScale * (scale / 5.6);
 
       const gridX = Math.floor(x / (gridSize * finalScale));
       const gridY = Math.floor(y / (gridSize * finalScale));
+
+      // Only allow drop if the cell is within the room bounds
+      if (!isGridCellInRoom(gridX, gridY)) {
+        return;
+      }
 
       // Convert grid position to inches
       const positionX = gridX * gridSize;
@@ -217,6 +371,121 @@ const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
     }
   };
 
+  // Check if a grid cell is within the room bounds
+  const isGridCellInRoom = (col: number, row: number) => {
+    if (roomShape.type === "rectangle") {
+      return true; // All cells within bounds are valid for rectangle
+    }
+
+    if (roomShape.type === "l-shape") {
+      const mainWidth = roomShape.mainWidth || roomWidth;
+      const mainLength = roomShape.mainLength || roomHeight;
+      const extWidth = roomShape.extensionWidth || 60;
+      const extLength = roomShape.extensionLength || 60;
+
+      const mainCols = Math.ceil(mainWidth / gridSize);
+      const mainRows = Math.ceil(mainLength / gridSize);
+      const extCols = Math.ceil(extWidth / gridSize);
+      const extRows = Math.ceil(extLength / gridSize);
+
+      // Check if cell is in main rectangle (always starts at 0,0)
+      const inMainRect = col < mainCols && row < mainRows;
+
+      // Check if cell is in extension based on position
+      let inExtension = false;
+      switch (roomShape.extensionPosition) {
+        case "top-right":
+          inExtension =
+            col >= mainCols && col < mainCols + extCols && row < extRows;
+          break;
+        case "top-left":
+          inExtension =
+            col >= Math.max(0, mainCols - extCols) &&
+            col < mainCols &&
+            row < extRows;
+          break;
+        case "bottom-right":
+          inExtension =
+            col >= mainCols &&
+            col < mainCols + extCols &&
+            row >= mainRows &&
+            row < mainRows + extRows;
+          break;
+        case "bottom-left":
+          inExtension =
+            col >= Math.max(0, mainCols - extCols) &&
+            col < mainCols &&
+            row >= mainRows &&
+            row < mainRows + extRows;
+          break;
+      }
+
+      return inMainRect || inExtension;
+    }
+
+    if (roomShape.type === "trapezoid") {
+      const topWidth = roomShape.topWidth || 80;
+      const bottomWidth = roomShape.bottomWidth || 120;
+      const height = roomShape.height || 120;
+
+      const totalRows = Math.ceil(height / gridSize);
+      const cellY = row * gridSize;
+      const progress = cellY / height; // 0 at top, 1 at bottom
+
+      // Linear interpolation between top and bottom widths
+      const currentWidth = topWidth + (bottomWidth - topWidth) * progress;
+      const maxCols = Math.ceil(currentWidth / gridSize);
+
+      // Center the trapezoid horizontally
+      const totalCols = Math.ceil(Math.max(topWidth, bottomWidth) / gridSize);
+      const offset = Math.floor((totalCols - maxCols) / 2);
+
+      return row < totalRows && col >= offset && col < offset + maxCols;
+    }
+
+    if (roomShape.type === "triangle") {
+      const base = roomShape.base || 120;
+      const triangleHeight = roomShape.triangleHeight || 120;
+
+      const totalRows = Math.ceil(triangleHeight / gridSize);
+      const cellY = row * gridSize;
+      const progress = cellY / triangleHeight; // 0 at top, 1 at bottom
+
+      // Width increases linearly from 0 at top to base at bottom
+      const currentWidth = base * progress;
+      const maxCols = Math.ceil(currentWidth / gridSize);
+
+      // Center the triangle horizontally
+      const totalCols = Math.ceil(base / gridSize);
+      const offset = Math.floor((totalCols - maxCols) / 2);
+
+      return row < totalRows && col >= offset && col < offset + maxCols;
+    }
+
+    if (roomShape.type === "pentagon" || roomShape.type === "hexagon") {
+      const radius = roomShape.radius || 80;
+      const sides = roomShape.sides || (roomShape.type === "pentagon" ? 5 : 6);
+
+      // Convert grid position to actual coordinates
+      const cellX = col * gridSize;
+      const cellY = row * gridSize;
+
+      // Center of the polygon
+      const centerX = radius;
+      const centerY = radius;
+
+      // Check if point is inside polygon using ray casting
+      const dx = cellX - centerX;
+      const dy = cellY - centerY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      // Simple approximation: check if within radius (will be refined for actual polygon shape)
+      return distance <= radius;
+    }
+
+    return false;
+  };
+
   // Generate grid cells
   const renderGrid = () => {
     if (!showGrid) return null;
@@ -224,16 +493,53 @@ const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
     const gridCells = [];
     // Calculate the same scale used for canvas dimensions
     const targetCanvasSize = 600;
-    const maxRoomDimension = Math.max(roomWidth, roomHeight);
+
+    let maxRoomDimension, canvasWidth, canvasHeight;
+
+    if (roomShape.type === "l-shape") {
+      const mainWidth = roomShape.mainWidth || roomWidth;
+      const mainLength = roomShape.mainLength || roomHeight;
+      const extWidth = roomShape.extensionWidth || 60;
+      const extLength = roomShape.extensionLength || 60;
+
+      canvasWidth = Math.max(mainWidth, extWidth);
+      canvasHeight = Math.max(mainLength, extLength);
+
+      if (
+        roomShape.extensionPosition === "top-right" ||
+        roomShape.extensionPosition === "bottom-right"
+      ) {
+        canvasWidth = mainWidth + extWidth;
+      }
+
+      if (
+        roomShape.extensionPosition === "top-right" ||
+        roomShape.extensionPosition === "top-left"
+      ) {
+        canvasHeight = mainLength + extLength;
+      }
+
+      maxRoomDimension = Math.max(canvasWidth, canvasHeight);
+    } else {
+      maxRoomDimension = Math.max(roomWidth, roomHeight);
+      canvasWidth = roomWidth;
+      canvasHeight = roomHeight;
+    }
+
     const baseScale = targetCanvasSize / maxRoomDimension;
     const finalScale = baseScale * (scale / 5.6);
     const cellSize = gridSize * finalScale; // Grid cell size in pixels
 
-    const cols = Math.ceil(roomWidth / gridSize);
-    const rows = Math.ceil(roomHeight / gridSize);
+    const cols = Math.ceil(canvasWidth / gridSize);
+    const rows = Math.ceil(canvasHeight / gridSize);
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
+        // Skip cells that are outside the room shape
+        if (!isGridCellInRoom(col, row)) {
+          continue;
+        }
+
         const x = col * cellSize;
         const y = row * cellSize;
 
@@ -325,12 +631,53 @@ const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
     <Card className="relative bg-white p-0 overflow-hidden">
       <div className="flex justify-between p-2 border-b">
         <div>
-          <span className="text-sm font-medium">
-            Room: {roomWidth}" × {roomHeight}"
-          </span>
-          <span className="text-xs text-muted-foreground ml-2">
-            ({Math.floor(roomWidth / 12)}' × {Math.floor(roomHeight / 12)}')
-          </span>
+          {roomShape.type === "rectangle" ? (
+            <>
+              <span className="text-sm font-medium">
+                Room: {roomWidth}" × {roomHeight}"
+              </span>
+              <span className="text-xs text-muted-foreground ml-2">
+                ({Math.floor(roomWidth / 12)}' × {Math.floor(roomHeight / 12)}')
+              </span>
+            </>
+          ) : roomShape.type === "trapezoid" ? (
+            <>
+              <span className="text-sm font-medium">Trapezoid Room</span>
+              <span className="text-xs text-muted-foreground ml-2">
+                Top: {roomShape.topWidth}", Bottom: {roomShape.bottomWidth}",
+                Height: {roomShape.height}"
+              </span>
+            </>
+          ) : roomShape.type === "triangle" ? (
+            <>
+              <span className="text-sm font-medium">Triangle Room</span>
+              <span className="text-xs text-muted-foreground ml-2">
+                Base: {roomShape.base}", Height: {roomShape.triangleHeight}"
+              </span>
+            </>
+          ) : roomShape.type === "pentagon" ? (
+            <>
+              <span className="text-sm font-medium">Pentagon Room</span>
+              <span className="text-xs text-muted-foreground ml-2">
+                Radius: {roomShape.radius}"
+              </span>
+            </>
+          ) : roomShape.type === "hexagon" ? (
+            <>
+              <span className="text-sm font-medium">Hexagon Room</span>
+              <span className="text-xs text-muted-foreground ml-2">
+                Radius: {roomShape.radius}"
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="text-sm font-medium">L-Shape Room</span>
+              <span className="text-xs text-muted-foreground ml-2">
+                Main: {roomShape.mainWidth}"×{roomShape.mainLength}", Ext:{" "}
+                {roomShape.extensionWidth}"×{roomShape.extensionLength}"
+              </span>
+            </>
+          )}
         </div>
         <div className="flex gap-2">
           <Button
@@ -378,7 +725,36 @@ const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
         {items.map((item) => {
           // Calculate the same scale used for canvas dimensions
           const targetCanvasSize = 600;
-          const maxRoomDimension = Math.max(roomWidth, roomHeight);
+
+          let maxRoomDimension;
+          if (roomShape.type === "l-shape") {
+            const mainWidth = roomShape.mainWidth || roomWidth;
+            const mainLength = roomShape.mainLength || roomHeight;
+            const extWidth = roomShape.extensionWidth || 60;
+            const extLength = roomShape.extensionLength || 60;
+
+            let canvasWidth = Math.max(mainWidth, extWidth);
+            let canvasHeight = Math.max(mainLength, extLength);
+
+            if (
+              roomShape.extensionPosition === "top-right" ||
+              roomShape.extensionPosition === "bottom-right"
+            ) {
+              canvasWidth = mainWidth + extWidth;
+            }
+
+            if (
+              roomShape.extensionPosition === "top-right" ||
+              roomShape.extensionPosition === "top-left"
+            ) {
+              canvasHeight = mainLength + extLength;
+            }
+
+            maxRoomDimension = Math.max(canvasWidth, canvasHeight);
+          } else {
+            maxRoomDimension = Math.max(roomWidth, roomHeight);
+          }
+
           const baseScale = targetCanvasSize / maxRoomDimension;
           const finalScale = baseScale * (scale / 5.6);
 
@@ -400,7 +776,36 @@ const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
           (() => {
             // Calculate the same scale used for canvas dimensions
             const targetCanvasSize = 600;
-            const maxRoomDimension = Math.max(roomWidth, roomHeight);
+
+            let maxRoomDimension;
+            if (roomShape.type === "l-shape") {
+              const mainWidth = roomShape.mainWidth || roomWidth;
+              const mainLength = roomShape.mainLength || roomHeight;
+              const extWidth = roomShape.extensionWidth || 60;
+              const extLength = roomShape.extensionLength || 60;
+
+              let canvasWidth = Math.max(mainWidth, extWidth);
+              let canvasHeight = Math.max(mainLength, extLength);
+
+              if (
+                roomShape.extensionPosition === "top-right" ||
+                roomShape.extensionPosition === "bottom-right"
+              ) {
+                canvasWidth = mainWidth + extWidth;
+              }
+
+              if (
+                roomShape.extensionPosition === "top-right" ||
+                roomShape.extensionPosition === "top-left"
+              ) {
+                canvasHeight = mainLength + extLength;
+              }
+
+              maxRoomDimension = Math.max(canvasWidth, canvasHeight);
+            } else {
+              maxRoomDimension = Math.max(roomWidth, roomHeight);
+            }
+
             const baseScale = targetCanvasSize / maxRoomDimension;
             const finalScale = baseScale * (scale / 5.6);
 
